@@ -1,0 +1,37 @@
+numpy>=1.24.0
+polars>=0.19.0
+pandas>=2.0.0
+scipy>=1.10.0
+matplotlib>=3.7.0
+seaborn>=0.12.0
+
+# Data collection
+requests>=2.31.0
+websocket-client>=1.5.0
+ccxt>=4.0.0
+# For CCXT Pro (WebSocket support) - requires separate license
+# Install with: pip install ccxt[pro]
+# ccxt[pro]>=4.0.0
+
+# Options pricing
+py_vollib>=1.0.1
+
+# Machine learning (optional)
+scikit-learn>=1.3.0
+
+# Jupyter
+jupyter>=1.0.0
+ipykernel>=6.25.0
+ipywidgets>=8.0.0
+
+# Testing
+pytest>=7.4.0
+pytest-cov>=4.1.0
+
+# Code quality
+black>=23.0.0
+flake8>=6.0.0
+mypy>=1.5.0
+
+# Documentation
+sphinx>=7.0.0
