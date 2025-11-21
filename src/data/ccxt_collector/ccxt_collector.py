@@ -22,10 +22,21 @@ except ImportError:
         "Install with: pip install ccxt[pro]"
     )
 
-
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Import schema definitions
+try:
+    from schema.deribit import futures as deribit_futures_schema
+    from schema.deribit import options as deribit_options_schema
+except ImportError:
+    logger.warning(
+        "Schema definitions not found. Running without schema validation. "
+        "Ensure schema directory is in the Python path."
+    )
+    deribit_futures_schema = None
+    deribit_options_schema = None
 
 
 @dataclass
@@ -38,43 +49,86 @@ class OrderbookSnapshot:
     asks: List[List[float]]  # [[price, size], ...]
     exchange: str
     
-    @property
-    def best_bid(self) -> Optional[float]:
-        """Return the best bid price."""
-        return self.bids[0][0] if self.bids else None
-    
-    @property
-    def best_ask(self) -> Optional[float]:
-        """Return the best ask price."""
-        return self.asks[0][0] if self.asks else None
-    
-    @property
-    def mid_price(self) -> Optional[float]:
-        """Return the mid price."""
-        if self.best_bid and self.best_ask:
-            return (self.best_bid + self.best_ask) / 2
-        return None
-    
-    @property
-    def spread(self) -> Optional[float]:
-        """Return the bid-ask spread."""
-        if self.best_bid and self.best_ask:
-            return self.best_ask - self.best_bid
-        return None
-    
+
     def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary format."""
-        return {
+        """
+        Convert to dictionary format with flattened orderbook levels (10 levels).
+        
+        Returns:
+            Dictionary with symbol, timestamp, exchange, and flattened bid/ask data.
+            Format: bid1, bidamt1, ask1, askamt1, bid2, bidamt2, ask2, askamt2, ...
+        """
+        result = {
             'symbol': self.symbol,
             'timestamp': self.timestamp,
-            'best_bid': self.best_bid,
-            'best_ask': self.best_ask,
-            'mid_price': self.mid_price,
-            'spread': self.spread,
-            'bid_depth': len(self.bids),
-            'ask_depth': len(self.asks),
             'exchange': self.exchange
         }
+        
+        # Add 10 levels of bid/ask data
+        for i in range(10):
+            result[f'bid{i+1}'] = self.bids[i][0] if i < len(self.bids) else None
+            result[f'bidamt{i+1}'] = self.bids[i][1] if i < len(self.bids) else None
+            result[f'ask{i+1}'] = self.asks[i][0] if i < len(self.asks) else None
+            result[f'askamt{i+1}'] = self.asks[i][1] if i < len(self.asks) else None
+        
+        return result
+
+
+@dataclass
+class TickerSnapshot:
+    """Represents a snapshot of ticker data at a point in time."""
+    
+    symbol: str
+    timestamp: datetime
+    exchange: str
+    instrument_type: str  # 'future' or 'option'
+    data: Dict[str, Any]  # Raw ticker data
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """
+        Convert to dictionary format with all ticker fields.
+        
+        Returns:
+            Dictionary with ticker data including timestamp and metadata.
+        """
+        result = {
+            'symbol': self.symbol,
+            'timestamp': self.timestamp,
+            'exchange': self.exchange,
+            'instrument_type': self.instrument_type,
+        }
+        result.update(self.data)
+        return result
+    
+    def validate_schema(self, exchange: str = 'deribit') -> tuple[bool, List[str]]:
+        """
+        Validate ticker data against the appropriate schema.
+        
+        Args:
+            exchange: Exchange name (default: 'deribit')
+            
+        Returns:
+            Tuple of (is_valid, missing_required_fields)
+        """
+        if exchange == 'deribit':
+            if self.instrument_type == 'future':
+                if deribit_futures_schema:
+                    required = deribit_futures_schema.REQUIRED_FIELDS
+                else:
+                    return True, []  # Skip validation if schema not available
+            elif self.instrument_type == 'option':
+                if deribit_options_schema:
+                    required = deribit_options_schema.REQUIRED_FIELDS
+                else:
+                    return True, []
+            else:
+                return True, []  # Unknown type, skip validation
+            
+            # Check for missing required fields
+            missing = [f for f in required if f not in self.data]
+            return len(missing) == 0, missing
+        
+        return True, []  # Unknown exchange, skip validation
 
 
 @dataclass
@@ -89,10 +143,6 @@ class StreamConfig:
     reconnect_delay: int = 5  # Seconds to wait before reconnecting
     max_reconnect_attempts: int = 10
     rate_limit: bool = True
-    
-    # Data storage settings
-    store_snapshots: bool = True
-    max_snapshots_per_symbol: int = 1000
     
     # Callback settings
     on_orderbook_update: Optional[Callable] = None
@@ -145,9 +195,6 @@ class CCXTProCollector:
         
         # Store latest orderbook snapshots
         self.orderbooks: Dict[str, OrderbookSnapshot] = {}
-        
-        # Store historical snapshots if enabled
-        self.snapshot_history: Dict[str, List[OrderbookSnapshot]] = defaultdict(list)
         
         # Track running tasks
         self.tasks: List[asyncio.Task] = []
@@ -389,13 +436,6 @@ class CCXTProCollector:
                 # Store latest snapshot
                 self.orderbooks[symbol] = snapshot
                 
-                # Store in history if enabled
-                if self.config.store_snapshots:
-                    self.snapshot_history[symbol].append(snapshot)
-                    # Limit history size
-                    if len(self.snapshot_history[symbol]) > self.config.max_snapshots_per_symbol:
-                        self.snapshot_history[symbol].pop(0)
-                
                 # Call user callback if provided
                 if self.config.on_orderbook_update:
                     try:
@@ -444,26 +484,6 @@ class CCXTProCollector:
         """
         return self.orderbooks.copy()
     
-    def get_snapshot_history(
-        self,
-        symbol: str,
-        limit: Optional[int] = None
-    ) -> List[OrderbookSnapshot]:
-        """
-        Get historical snapshots for a symbol.
-        
-        Args:
-            symbol: Symbol to retrieve history for
-            limit: Optional limit on number of snapshots to return (most recent)
-            
-        Returns:
-            List of OrderbookSnapshot objects
-        """
-        history = self.snapshot_history.get(symbol, [])
-        if limit:
-            return history[-limit:]
-        return history.copy()
-    
     def get_orderbooks_as_dataframe(self) -> pd.DataFrame:
         """
         Convert current orderbook snapshots to a pandas DataFrame.
@@ -510,6 +530,78 @@ class CCXTProCollector:
             self._futures_markets.get(symbol) or
             self._options_markets.get(symbol)
         )
+    
+    def get_futures_required_fields(self) -> List[str]:
+        """
+        Get list of required fields for futures ticker data based on exchange schema.
+        
+        Returns:
+            List of required field names
+        """
+        if self.config.exchange_id == 'deribit' and deribit_futures_schema:
+            return deribit_futures_schema.REQUIRED_FIELDS.copy()
+        return []
+    
+    def get_futures_optional_fields(self) -> List[str]:
+        """
+        Get list of optional fields for futures ticker data based on exchange schema.
+        
+        Returns:
+            List of optional field names
+        """
+        if self.config.exchange_id == 'deribit' and deribit_futures_schema:
+            return deribit_futures_schema.OPTIONAL_FIELDS.copy()
+        return []
+    
+    def get_options_required_fields(self) -> List[str]:
+        """
+        Get list of required fields for options ticker data based on exchange schema.
+        
+        Returns:
+            List of required field names
+        """
+        if self.config.exchange_id == 'deribit' and deribit_options_schema:
+            return deribit_options_schema.REQUIRED_FIELDS.copy()
+        return []
+    
+    def get_options_optional_fields(self) -> List[str]:
+        """
+        Get list of optional fields for options ticker data based on exchange schema.
+        
+        Returns:
+            List of optional field names
+        """
+        if self.config.exchange_id == 'deribit' and deribit_options_schema:
+            return deribit_options_schema.OPTIONAL_FIELDS.copy()
+        return []
+    
+    def validate_ticker_data(
+        self, 
+        data: Dict[str, Any], 
+        instrument_type: str
+    ) -> tuple[bool, List[str]]:
+        """
+        Validate ticker data against the appropriate schema.
+        
+        Args:
+            data: Ticker data dictionary to validate
+            instrument_type: 'future' or 'option'
+            
+        Returns:
+            Tuple of (is_valid, missing_required_fields)
+        """
+        if self.config.exchange_id == 'deribit':
+            if instrument_type == 'future' and deribit_futures_schema:
+                required = deribit_futures_schema.REQUIRED_FIELDS
+            elif instrument_type == 'option' and deribit_options_schema:
+                required = deribit_options_schema.REQUIRED_FIELDS
+            else:
+                return True, []  # No schema available
+            
+            missing = [f for f in required if f not in data]
+            return len(missing) == 0, missing
+        
+        return True, []  # Unknown exchange
 
 
 class MultiExchangeCollector:

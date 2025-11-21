@@ -11,10 +11,6 @@ try:
         OrderbookSnapshot,
         MultiExchangeCollector,
     )
-    from .storage import (
-        OrderbookDataStore,
-        StreamingDataRecorder,
-    )
     CCXT_PRO_AVAILABLE = True
 except ImportError as e:
     CCXT_PRO_AVAILABLE = False
@@ -25,8 +21,6 @@ __all__ = [
     'StreamConfig',
     'OrderbookSnapshot',
     'MultiExchangeCollector',
-    'OrderbookDataStore',
-    'StreamingDataRecorder',
     'CCXT_PRO_AVAILABLE',
 ]
 

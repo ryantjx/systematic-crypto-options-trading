@@ -3,73 +3,25 @@
 ## Project Goal
 Build a comprehensive options volatility surface modeling system for Deribit BTC options, enabling real-time volatility analysis, greeks computation, and systematic trading strategy development.
 
+--- 
+## Project Scope
+- Deribit BTC Spot/Futures/Options 
 ---
 
 ## Key Requirements
 
 ### Data Requirements
-1. **BTC Spot Price** - Real-time spot prices for BTC/USD
-2. **BTC Futures/Perpetuals Price** - Front month futures and perpetual swap prices
-3. **BTC Options Market Data**
-   - Best Bid/Ask prices and quantities
-   - Option contract specifications (strike, expiry, type)
-   - Implied volatility (IV) from exchange
-   - Open interest and volume
-   - Greeks (if provided by exchange)
-4. **Risk-Free Rate** - Treasury rates or SOFR for pricing models
-5. **Market Microstructure Data** - Order book depth, trade flow (optional for Phase 1-2)
+1. Spot - Orderbook
+2. Futures - Orderbook, Tickers
+3. Options - Orderbook, Tickers
 
 ### System Requirements
 1. **Low Latency** - WebSocket connections for real-time data ingestion (<100ms)
-2. **High Availability** - 99.5% uptime target for data collection
+2. **High Availability** - Perpetual uptime. Telegram notifications on failure.
 3. **Data Integrity** - Validation, deduplication, and error handling
-4. **Scalability** - Handle 1000+ option contracts with multiple expiries
-5. **Historical Storage** - Minimum 1 year of tick data retention
-6. **Query Performance** - Sub-second queries for volatility surface reconstruction
-
----
-
-## Tech Stack
-
-### Core Infrastructure
-- **Python 3.13.5** - Primary programming language
-- **AWS EC2** - Cloud compute (t3.medium or t3.large recommended)
-- **Docker** - Containerization for reproducibility
-- **Git/GitHub** - Version control and CI/CD
-
-### Data Layer
-- **Primary Database**: TimescaleDB (PostgreSQL-based, excellent for time-series)
-  - Alternative: QuestDB (higher throughput) or ClickHouse (better for analytics)
-  - **Recommendation**: Start with TimescaleDB for SQL compatibility and ease of use
-- **Redis** - In-memory cache for real-time greeks and surface state
-- **S3** - Long-term archival storage for raw data backups
-
-### Data Ingestion
-- **WebSocket Libraries**: `websocket-client`, `asyncio`, `aiohttp`
-- **CCXT** - Unified exchange API wrapper (fallback for REST endpoints)
-- **Apache Kafka** (Optional) - Message queue for production-grade streaming
-
-### Analytics & Modeling
-- **NumPy** - Numerical computations
-- **Polars** - High-performance dataframe operations (preferred over Pandas)
-- **SciPy** - Options pricing (Black-Scholes, numerical methods)
-- **QuantLib** (Optional) - Advanced options pricing library
-- **Scikit-learn** - Volatility surface interpolation/fitting
-
-### Visualization & Monitoring
-- **Grafana** - Real-time dashboards for volatility surfaces and greeks
-- **Plotly/Matplotlib** - Static analysis plots in Jupyter notebooks
-- **Prometheus** - Metrics collection for system monitoring
-
-### Alerting & Notifications
-- **Telegram Bot API** - Trading signals and system alerts
-- **Python-telegram-bot** library
-
-### Development Tools
-- **Jupyter Lab** - Interactive research environment
-- **pytest** - Unit and integration testing
-- **black/ruff** - Code formatting and linting
-- **mypy** - Static type checking
+4. **Scalability**
+5. **Historical Storage** - Store data reliably.
+6. **Query Performance** - Low latency queries.
 
 ---
 
@@ -81,46 +33,20 @@ Build a comprehensive options volatility surface modeling system for Deribit BTC
 - [x] Initialize Git repository
 - [x] Create virtual environment with `uv`
 - [x] Set up project directory structure (`src/`, `data/`, `configs/`, `tests/`)
-- [ ] Create `.env` template for API keys and database credentials
-- [ ] Set up logging configuration (`src/logging/`)
-- [ ] Write project setup documentation in README
+- [x] Create `.env` template for API keys and database credentials
+- [x] Set up logging configuration (`src/logging/`)
+- [x] Write project setup documentation in README
 
 ### 1.2 Database Design & Deployment
-- [ ] **Database Selection**: Finalize choice between TimescaleDB/QuestDB/ClickHouse
-  - Evaluate based on: write throughput, query latency, SQL support, operational complexity
-- [ ] **Schema Design**:
-  - Design `spot_prices` table (timestamp, symbol, price, volume)
-  - Design `futures_prices` table (timestamp, symbol, contract_type, price, funding_rate, open_interest)
-  - Design `options_quotes` table (timestamp, instrument_name, strike, expiry, option_type, bid, ask, bid_size, ask_size, mark_iv, underlying_price)
-  - Design `options_metadata` table (instrument_name, strike, expiry, option_type, settlement_type, tick_size)
-  - Add indexes on timestamp, symbol, strike, expiry for fast queries
-- [ ] **Database Deployment**:
-  - Deploy TimescaleDB on AWS EC2 or AWS RDS for PostgreSQL
-  - Enable TimescaleDB extension and create hypertables
-  - Set up automated backups and retention policies (e.g., 7-day snapshots, 1-year retention)
-  - Configure connection pooling (pgBouncer recommended)
+- [ ] **Database Deployment**: Deploy QuestDB on AWS EC2
 - [ ] **Testing**: Write integration tests to verify table creation and data insertion
 
-### 1.3 Deribit API Integration
-- [ ] **API Research**:
-  - Read Deribit API documentation (both REST and WebSocket)
-  - Identify required endpoints:
-    - `/public/get_instruments` - Fetch all BTC options
+### 1.3 API Integration
+  - [ ]
+    - `/public/get_instruments` - Fetch all options
     - `/public/ticker` - Get spot and futures tickers
     - WebSocket channels: `book.{instrument}.{group}.{depth}`, `ticker.{instrument}.100ms`
-- [ ] **Authentication Setup**:
-  - Register Deribit account (testnet for development)
-  - Generate API keys and store in `.env`
-  - Test authentication with REST API
-- [ ] **REST Client Development** (`src/data/deribit_rest.py`):
-  - Implement `DeribitRestClient` class
-  - Methods: `get_instruments()`, `get_ticker()`, `get_order_book()`, `get_trade_history()`
-  - Add error handling, rate limiting (10 req/sec limit), and retry logic
-- [ ] **WebSocket Client Development** (`src/data/deribit_ws.py`):
-  - Implement `DeribitWebSocketClient` class with asyncio
-  - Subscription methods: `subscribe_ticker()`, `subscribe_order_book()`
-  - Heartbeat handling and automatic reconnection logic
-  - Message parsing and validation
+
 - [ ] **Testing**: 
   - Unit tests for REST client with mocked responses
   - Integration test with Deribit testnet WebSocket
@@ -352,10 +278,11 @@ Build a comprehensive options volatility surface modeling system for Deribit BTC
    - Single Python process can handle 100+ concurrent subscriptions
    - More efficient than multi-threading for I/O-bound tasks
 
-5. **Docker Containerization**
+5. **Docker Containerization** 📦
    - Create Dockerfile for reproducible deployment
    - Docker Compose for local development (database + Grafana + app)
    - Simplifies EC2 deployment and scaling
+   - **See**: [DOCKER.md](./DOCKER.md) for complete infrastructure guide
 
 6. **Version Control for Schemas**
    - Use Alembic or Flyway for database migrations
@@ -454,11 +381,15 @@ Build a comprehensive options volatility surface modeling system for Deribit BTC
 - ✅ Query latency <1 second for full option chain reconstruction
 - ✅ Grafana dashboard showing ingestion metrics
 - ✅ Automated backups and monitoring alerts
+- ✅ Telegram bot operational with core commands
+- ✅ Grafana dashboard with database monitoring
+- ✅ Dockerized application for easy deployment
+- ✅ Docker Compose for local development
+- ✅ Dockerfile for reproducible deployment
 
 ### Phase 2 Completion Criteria
 - ✅ Volatility surface reconstructed in real-time (<5 second lag)
 - ✅ Greeks computed for all liquid options
 - ✅ Grafana dashboard with surface visualization and term structure
 - ✅ Pricing error <5% vs. market mid for ATM options
-- ✅ Telegram bot operational with core commands
 - ✅ Documented codebase with >80% test coverage for pricing modules

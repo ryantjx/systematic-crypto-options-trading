@@ -4,17 +4,14 @@ Stream BTC and ETH futures data from Deribit using CCXT Pro.
 
 This script demonstrates real-time streaming of orderbook data for Bitcoin and
 Ethereum futures on Deribit exchange. It logs all data updates and stores them
-to disk in multiple formats (JSONL and CSV).
+to disk in multiple formats (JSONL and Parquet).
 
 Usage:
     python examples/stream_futures_deribit/stream_futures_deribit.py [--duration SECONDS] [--symbols SYMBOL1 SYMBOL2 ...]
     
 Examples:
-    # Stream for 60 seconds (default, no data storage)
+    # Stream for 60 seconds
     python examples/stream_futures_deribit/stream_futures_deribit.py
-    
-    # Stream for 5 minutes with data storage
-    python examples/stream_futures_deribit/stream_futures_deribit.py --duration 300 --store
     
     # Stream specific symbols
     python examples/stream_futures_deribit/stream_futures_deribit.py --symbols BTC-PERPETUAL ETH-PERPETUAL
@@ -23,26 +20,29 @@ Examples:
 import asyncio
 import argparse
 import sys
+import json
+import pandas as pd
 from pathlib import Path
 from datetime import datetime
-from typing import List
+from typing import List, Dict, Any
 
 # Add src to path for imports
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
 
 from src.data.ccxt_collector.ccxt_collector import (
     CCXTProCollector,
     StreamConfig,
     OrderbookSnapshot
 )
-from src.data.ccxt_collector.storage import OrderbookDataStore, StreamingDataRecorder
 from src.logging.logger import setup_logging, get_logger
 
 
-# Setup logging - unique log file for this example
-log_dir = Path(__file__).parent / "logs"
-log_dir.mkdir(exist_ok=True)
-log_file = log_dir / f"stream_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+# Define data directory
+DATA_DIR = Path(__file__).parent / "data"
+DATA_DIR.mkdir(exist_ok=True)
+
+# Setup logging - fixed log file
+log_file = DATA_DIR / "output.log"
 
 setup_logging(
     level="INFO",
@@ -54,12 +54,68 @@ setup_logging(
 logger = get_logger(__name__)
 
 
+class SimpleDataWriter:
+    """
+    Simple data writer for streaming data.
+    Writes to output.jsonl and output.parquet without timestamps in filenames.
+    """
+    
+    def __init__(self):
+        self.jsonl_path = DATA_DIR / "output.jsonl"
+        self.parquet_path = DATA_DIR / "output.parquet"
+        self.buffer: List[Dict[str, Any]] = []
+        self.buffer_size = 100  # Flush to parquet every 100 snapshots
+        
+        # Clear existing files
+        if self.jsonl_path.exists():
+            self.jsonl_path.unlink()
+        if self.parquet_path.exists():
+            self.parquet_path.unlink()
+            
+        logger.info(f"📝 Data will be written to {self.jsonl_path} and {self.parquet_path}")
+
+    async def write(self, snapshot: OrderbookSnapshot):
+        """Write snapshot to storage."""
+        data = snapshot.to_dict()
+        data['timestamp'] = snapshot.timestamp.isoformat()
+        
+        # Write to JSONL immediately
+        with self.jsonl_path.open('a') as f:
+            json.dump(data, f)
+            f.write('\n')
+            
+        # Add to buffer for Parquet
+        # For parquet, we need datetime objects for timestamp, not strings if we want proper types
+        parquet_data = snapshot.to_dict()
+        parquet_data['timestamp'] = snapshot.timestamp
+        self.buffer.append(parquet_data)
+        
+        if len(self.buffer) >= self.buffer_size:
+            self.flush_parquet()
+            
+    def flush_parquet(self):
+        """Flush buffer to parquet file."""
+        if not self.buffer:
+            return
+            
+        df = pd.DataFrame(self.buffer)
+        
+        # Append to parquet if exists, otherwise create
+        if self.parquet_path.exists():
+            existing_df = pd.read_parquet(self.parquet_path)
+            combined_df = pd.concat([existing_df, df], ignore_index=True)
+            combined_df.to_parquet(self.parquet_path, engine='pyarrow', compression='snappy', index=False)
+        else:
+            df.to_parquet(self.parquet_path, engine='pyarrow', compression='snappy', index=False)
+            
+        self.buffer.clear()
+
+
 class FuturesStreamMonitor:
     """Monitor and display statistics for futures streaming."""
     
     def __init__(self):
         self.update_count = {}
-        self.last_prices = {}
         self.start_time = datetime.now()
     
     async def on_orderbook_update(self, snapshot: OrderbookSnapshot):
@@ -72,29 +128,6 @@ class FuturesStreamMonitor:
             logger.info(f"🎯 Started receiving data for {symbol}")
         
         self.update_count[symbol] += 1
-        
-        # Log price updates
-        mid_price = snapshot.mid_price
-        if mid_price:
-            # Check for significant price changes
-            if symbol in self.last_prices:
-                price_change = mid_price - self.last_prices[symbol]
-                pct_change = (price_change / self.last_prices[symbol]) * 100
-                
-                if abs(pct_change) >= 0.1:  # Log if change >= 0.1%
-                    direction = "📈" if price_change > 0 else "📉"
-                    logger.info(
-                        f"{direction} {symbol}: ${mid_price:.2f} "
-                        f"({pct_change:+.2f}%) | "
-                        f"Spread: ${snapshot.spread:.2f}"
-                    )
-            else:
-                logger.info(
-                    f"💰 {symbol}: Initial price ${mid_price:.2f} | "
-                    f"Spread: ${snapshot.spread:.2f}"
-                )
-            
-            self.last_prices[symbol] = mid_price
         
         # Log periodic statistics
         count = self.update_count[symbol]
@@ -122,10 +155,8 @@ class FuturesStreamMonitor:
         
         for symbol, count in sorted(self.update_count.items()):
             rate = count / elapsed if elapsed > 0 else 0
-            last_price = self.last_prices.get(symbol, 0)
             logger.info(
-                f"  {symbol}: {count} updates (~{rate:.1f}/sec) | "
-                f"Last price: ${last_price:.2f}"
+                f"  {symbol}: {count} updates (~{rate:.1f}/sec)"
             )
         
         logger.info("=" * 60)
@@ -133,9 +164,7 @@ class FuturesStreamMonitor:
 
 async def stream_futures(
     symbols: List[str],
-    duration: int = 60,
-    store_data: bool = True,
-    data_format: str = 'both'
+    duration: int = 60
 ):
     """
     Stream futures data from Deribit.
@@ -143,38 +172,21 @@ async def stream_futures(
     Args:
         symbols: List of futures symbols to stream
         duration: How long to stream in seconds
-        store_data: Whether to store data to disk
-        data_format: Storage format ('jsonl', 'csv', or 'both')
     """
     logger.info("🚀 Starting Deribit Futures Data Stream")
     logger.info(f"Symbols: {', '.join(symbols)}")
     logger.info(f"Duration: {duration} seconds")
-    logger.info(f"Data storage: {'Enabled' if store_data else 'Disabled'}")
-    if store_data:
-        logger.info(f"Storage format: {data_format}")
     logger.info("-" * 60)
     
-    # Create monitor
+    # Create monitor and writer
     monitor = FuturesStreamMonitor()
-    
-    # Setup data storage
-    recorder = None
-    if store_data:
-        data_dir = Path(__file__).parent / "data"
-        data_store = OrderbookDataStore(base_path=str(data_dir / "orderbooks"))
-        recorder = StreamingDataRecorder(
-            data_store=data_store,
-            format=data_format,
-            include_csv_depth=True
-        )
-        logger.info(f"📁 Data will be stored in: {data_dir}")
+    writer = SimpleDataWriter()
     
     # Create combined callback
     async def combined_callback(snapshot: OrderbookSnapshot):
         """Combined callback for monitoring and recording."""
         await monitor.on_orderbook_update(snapshot)
-        if recorder:
-            await recorder.record_snapshot(snapshot)
+        await writer.write(snapshot)
     
     # Configure collector
     config = StreamConfig(
@@ -182,9 +194,7 @@ async def stream_futures(
         testnet=False,  # Use production
         orderbook_limit=10,
         on_orderbook_update=combined_callback,
-        on_error=monitor.on_error,
-        store_snapshots=True,
-        max_snapshots_per_symbol=1000
+        on_error=monitor.on_error
     )
     
     # Create collector
@@ -211,16 +221,11 @@ async def stream_futures(
         logger.info("🛑 Stopping data stream...")
         await collector.stop()
         
+        # Flush remaining data
+        writer.flush_parquet()
+        
         # Print summary
         monitor.print_summary()
-        
-        # Print storage stats
-        if recorder:
-            stats = recorder.get_stats()
-            logger.info("\n📦 STORAGE STATISTICS")
-            logger.info(f"  Total snapshots recorded: {stats['total_snapshots']}")
-            logger.info(f"  JSONL files: {stats['jsonl_files']}")
-            logger.info(f"  CSV files: {stats['csv_files']}")
         
         logger.info(f"\n📄 Session log saved to: {log_file}")
 
@@ -232,17 +237,14 @@ def parse_args():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Stream default symbols (BTC and ETH perpetuals) for 60 seconds (no storage)
+  # Stream default symbols (BTC and ETH perpetuals) for 60 seconds
   python examples/stream_futures_deribit/stream_futures_deribit.py
   
-  # Stream for 5 minutes with data storage
-  python examples/stream_futures_deribit/stream_futures_deribit.py --duration 300 --store
+  # Stream for 5 minutes
+  python examples/stream_futures_deribit/stream_futures_deribit.py --duration 300
   
   # Stream specific futures contracts
   python examples/stream_futures_deribit/stream_futures_deribit.py --symbols BTC-PERPETUAL ETH-PERPETUAL BTC-27DEC24
-  
-  # Enable data storage with specific format
-  python examples/stream_futures_deribit/stream_futures_deribit.py --store --format csv
         """
     )
     
@@ -256,21 +258,8 @@ Examples:
     parser.add_argument(
         '--duration',
         type=int,
-        default=60,
+        default=15,
         help='Duration to stream in seconds (default: 60)'
-    )
-    
-    parser.add_argument(
-        '--store',
-        action='store_true',
-        help='Enable data storage to disk (default: disabled)'
-    )
-    
-    parser.add_argument(
-        '--format',
-        choices=['jsonl', 'csv', 'both'],
-        default='both',
-        help='Data storage format (default: both)'
     )
     
     return parser.parse_args()
@@ -282,9 +271,7 @@ async def main():
     
     await stream_futures(
         symbols=args.symbols,
-        duration=args.duration,
-        store_data=args.store,
-        data_format=args.format
+        duration=args.duration
     )
 
 

@@ -71,11 +71,11 @@ uv pip install -e .
 ```
 ## Development Roadmap
 
-- [ ] Phase 1: Data infrastructure and collection pipelines
-- [ ] Phase 2: Volatility surface modeling and calibration
-- [ ] Phase 3: Strategy development and backtesting framework
-- [ ] Phase 4: Risk management and portfolio analytics
-- [ ] Phase 5: Live trading integration (paper trading first)
+- [ ] Phase 1: Data infrastructure and collection pipelines. Frontend dashboard for management.
+- [ ] Phase 2: Volatility surface modeling and calibration. Frontend dashboard for data visualization.
+- [ ] Phase 3: Strategy development and backtesting framework. Frontend dashboard for strategy visualization.
+- [ ] Phase 4: Risk management and portfolio analytics. Frontend dashboard for risk management.
+- [ ] Phase 5: Live trading integration. Frontend dashboard for live trading.
 
 ## Contributing
 
