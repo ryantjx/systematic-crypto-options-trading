@@ -15,13 +15,13 @@ The cryptocurrency options market presents unique opportunities and challenges c
 3. **Strategy Development**: Design and backtest systematic trading strategies including volatility arbitrage, delta-neutral strategies, and market-making
 4. **Risk Management**: Implement comprehensive risk models accounting for crypto-specific risks (liquidation, exchange risk, gas fees)
 
-### Key Research Questions
+<!-- ### Key Research Questions
 
 - How do crypto implied volatility surfaces differ from traditional equity options?
 - What are the risk premia in crypto options markets?
 - Can volatility arbitrage strategies be profitably implemented?
 - How do market microstructure factors affect option pricing in decentralized markets?
-- What are the optimal hedging strategies given high spot volatility and funding costs?
+- What are the optimal hedging strategies given high spot volatility and funding costs? -->
 
 ## Repository Architecture
 
@@ -50,13 +50,6 @@ systematic-crypto-options-trading/
 └── scripts/                  # Utility scripts and automation
 ```
 
-### Design Principles
-
-- **Modularity**: Each component is self-contained and can be used independently
-- **Research-First**: Easy to prototype in notebooks with clean imports from `src/`
-- **Reproducibility**: Clear data versioning and experiment tracking
-- **Scalability**: Architecture supports both research and production deployment
-
 ## Getting Started
 
 ### Installation
@@ -67,43 +60,15 @@ git clone https://github.com/yourusername/systematic-crypto-options-trading.git
 cd systematic-crypto-options-trading
 
 # Create virtual environment
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+uv venv
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 
 # Install dependencies
-pip install -r requirements.txt
+uv pip install -r requirements.txt
 
 # Install package in development mode
-pip install -e .
+uv pip install -e .
 ```
-
-### Quick Start
-
-The framework includes a centralized logging system for tracking application behavior and debugging. Here's how to use it:
-
-```python
-from src.logging import get_logger, setup_logging
-
-# Configure logging at application startup
-setup_logging(
-    level="INFO",
-    log_file="data/logs/app.log",
-    console=True,
-    colored=True
-)
-
-# Get a logger for your module
-logger = get_logger(__name__)
-
-# Use the logger
-logger.info("Starting data collection")
-logger.debug("Detailed debug information")
-logger.warning("Warning message")
-logger.error("An error occurred", exc_info=True)
-```
-
-See the `notebooks/` directory for examples of how to use the framework for research and strategy development.
-
 ## Development Roadmap
 
 - [ ] Phase 1: Data infrastructure and collection pipelines
@@ -119,6 +84,7 @@ This is a research project developed as part of Warwick Quant. Contributions and
 ## License
 
 TBD
+
 
 ## Acknowledgments
 

@@ -13,10 +13,7 @@ ccxt>=4.0.0
 # Install with: pip install ccxt[pro]
 # ccxt[pro]>=4.0.0
 
-# Options pricing
-py_vollib>=1.0.1
-
-# Machine learning (optional)
+# Machine learning
 scikit-learn>=1.3.0
 
 # Jupyter
